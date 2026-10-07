@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lịch ghi chú</title>
+<style>
+:root{--bg:#f6f7f4;--card:#fff;--ink:#1f2a24;--mute:#7a867f;--line:#e2e6e0;--accent:#2f6f5e;--dot:#e0a030;--sel:#e4efeb}
+@media (prefers-color-scheme:dark){:root{--bg:#161b18;--card:#1f2622;--ink:#e8eee9;--mute:#8d9a92;--line:#2e3832;--accent:#5fb89f;--dot:#e0a030;--sel:#25382f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Georgia,"Times New Roman",serif;line-height:1.5}
+.app{max-width:960px;margin:0 auto;padding:24px 16px;display:grid;grid-template-columns:1.4fr 1fr;gap:24px}
+@media(max-width:760px){.app{grid-template-columns:1fr}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+h1{font-size:1.6rem;margin:0;font-weight:700}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:6px 12px}
+button:hover{border-color:var(--accent)}
+button:focus-visible,textarea:focus-visible,.day:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.dow{text-align:center;color:var(--mute);font-size:.85rem;padding:6px 0}
+.day{aspect-ratio:1;border:1px solid transparent;border-radius:8px;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0;position:relative}
+.day:hover{background:var(--sel)}
+.day.today{border-color:var(--accent);font-weight:700}
+.day.sel{background:var(--accent);color:#fff}
+.day.empty{pointer-events:none}
+.day i{width:6px;height:6px;border-radius:50%;background:var(--dot);position:absolute;bottom:6px}
+.day:not(.has) i{display:none}
+h2{font-size:1.15rem;margin:0 0 4px}
+.sub{color:var(--mute);font-size:.9rem;margin:0 0 12px}
+textarea{width:100%;min-height:110px;resize:vertical;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.row{display:flex;gap:8px;margin-top:8px}
+ul{list-style:none;padding:0;margin:16px 0 0}
+li{border-top:1px solid var(--line);padding:10px 0;display:flex;gap:8px;justify-content:space-between;align-items:flex-start}
+li p{margin:0;white-space:pre-wrap;word-break:break-word}
+li button{padding:2px 8px;color:var(--mute)}
+.empty-msg{color:var(--mute);font-size:.9rem}
+.tools{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="panel" aria-label="Lịch">
+    <header>
+      <button id="prev" aria-label="Tháng trước">‹</button>
+      <h1 id="title"></h1>
+      <button id="next" aria-label="Tháng sau">›</button>
+    </header>
+    <div class="grid" id="grid"></div>
+    <div class="tools"><button id="todayBtn">Hôm nay</button></div>
+  </section>
+
+  <section class="panel" aria-label="Ghi chú">
+    <h2 id="dayTitle"></h2>
+    <p class="sub" id="dayCount"></p>
+    <textarea id="text" placeholder="Viết ghi chú cho ngày này…"></textarea>
+    <div class="row"><button class="primary" id="add">Thêm ghi chú</button></div>
+    <ul id="list"></ul>
+    <div class="tools">
+      <button id="export">Xuất file</button>
+      <button id="import">Nhập file</button>
+      <input type="file" id="file" accept=".json" hidden>
+    </div>
+  </section>
+</div>
+
+<script>
+const KEY = "calendar-notes-v1";
+let notes = {};
+try { notes = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { notes = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(notes)); } catch (e) {} };
+
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, "0");
+const keyOf = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const today = new Date();
+let view = new Date(today.getFullYear(), today.getMonth(), 1);
+let selected = keyOf(today);
+
+function renderCalendar() {
+  $("title").textContent = `Tháng ${view.getMonth()+1}, ${view.getFullYear()}`;
+  const grid = $("grid");
+  grid.innerHTML = "";
+  ["T2","T3","T4","T5","T6","T7","CN"].forEach(n => {
+    const d = document.createElement("div"); d.className = "dow"; d.textContent = n; grid.appendChild(d);
+  });
+  const first = (view.getDay() + 6) % 7; // tuần bắt đầu từ thứ hai
+  const days = new Date(view.getFullYear(), view.getMonth()+1, 0).getDate();
+  for (let i = 0; i < first; i++) {
+    const e = document.createElement("div"); e.className = "day empty"; grid.appendChild(e);
+  }
+  for (let d = 1; d <= days; d++) {
+    const k = keyOf(new Date(view.getFullYear(), view.getMonth(), d));
+    const b = document.createElement("button");
+    b.className = "day" + (k === keyOf(today) ? " today" : "") + (k === selected ? " sel" : "") + (notes[k]?.length ? " has" : "");
+    b.innerHTML = `${d}<i></i>`;
+    b.setAttribute("aria-label", `Ngày ${d}`);
+    b.onclick = () => { selected = k; renderAll(); };
+    grid.appendChild(b);
+  }
+}
+
+function renderNotes() {
+  const [y, m, d] = selected.split("-").map(Number);
+  const date = new Date(y, m-1, d);
+  $("dayTitle").textContent = date.toLocaleDateString("vi-VN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const list = notes[selected] || [];
+  $("dayCount").textContent = list.length ? `${list.length} ghi chú` : "Chưa có ghi chú nào.";
+  const ul = $("list");
+  ul.innerHTML = "";
+  list.forEach((t, i) => {
+    const li = document.createElement("li");
+    const p = document.createElement("p"); p.textContent = t;
+    const x = document.createElement("button"); x.textContent = "Xóa"; x.setAttribute("aria-label", "Xóa ghi chú");
+    x.onclick = () => { list.splice(i, 1); if (!list.length) delete notes[selected]; save(); renderAll(); };
+    li.append(p, x); ul.appendChild(li);
+  });
+}
+
+function renderAll() { renderCalendar(); renderNotes(); }
+
+$("prev").onclick = () => { view = new Date(view.getFullYear(), view.getMonth()-1, 1); renderCalendar(); };
+$("next").onclick = () => { view = new Date(view.getFullYear(), view.getMonth()+1, 1); renderCalendar(); };
+$("todayBtn").onclick = () => { view = new Date(today.getFullYear(), today.getMonth(), 1); selected = keyOf(today); renderAll(); };
+
+function addNote() {
+  const v = $("text").value.trim();
+  if (!v) return;
+  (notes[selected] = notes[selected] || []).push(v);
+  $("text").value = "";
+  save(); renderAll();
+}
+$("add").onclick = addNote;
+$("text").addEventListener("keydown", e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) addNote(); });
+
+$("export").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(notes, null, 2)], { type: "application/json" }));
+  a.download = "ghi-chu-lich.json"; a.click();
+};
+$("import").onclick = () => $("file").click();
+$("file").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try { notes = JSON.parse(r.result) || {}; save(); renderAll(); }
+    catch (err) { alert("File không hợp lệ. Hãy chọn file .json đã xuất từ trang này."); }
+  };
+  r.readAsText(f);
+};
+
+renderAll();
+</script>
+</body>
+</html>
